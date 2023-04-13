@@ -1,0 +1,104 @@
+pipeline {
+    agent any
+    environment {
+        USERGIT = "madson7"
+        USERDOCKERHUB = "madson7"
+        REPO = "dev"
+        DIR = "java/webapp/app"
+        APP = "webapp"
+    }
+    parameters {
+        choice(name: "ENVIRONMENT",
+            choices: ["DEVELOPMENT" , "HOMOLOGATION", "PRODUCTION"],
+            description: "Choose the environment for this deployment")
+    }
+    stages {
+        stage ('Checkout') {
+            steps {
+                echo "Cloning or pulling the repository $REPO"
+                script {
+                    if (fileExists("$REPO")) {
+                        dir("$REPO") {
+                            sh 'git restore .'
+                            sh 'git pull'
+                        }
+                    } else {
+                        sh 'git clone https://github.com/$USERGIT/$REPO.git'
+                    }
+                }
+            }
+        }
+        stage ('UNIT testing') {
+            steps {
+                dir ("${WORKSPACE}/$REPO/$DIR") {
+                    script{
+                        sh 'mvn test'
+                    }
+                }
+            }
+        }
+        stage ('Integration testing') {
+            steps {
+                dir ("${WORKSPACE}/$REPO/$DIR") {
+                    script{
+                        sh 'mvn verify -DskipUnitTests'
+                    }
+                }
+            }
+        }
+        stage ('Application build with maven in docker') {
+            steps{
+                dir ("${WORKSPACE}/$REPO/$DIR") {
+                    script{
+                        dockerapp = docker.build("$USERDOCKERHUB/$APP:0.1.${env.BUILD_ID}", "-f ../Dockerfile ..")
+                    }
+                }
+            }
+        }
+        stage ('Deploy to development environments') {
+            when {
+                expression { params.ENVIRONMENT != "HOMOLOGATION" && params.ENVIRONMENT != "PRODUCTION" }
+            }
+            steps {
+                sh 'docker rm --force $(docker ps -a -q)'
+                sh 'docker run -d -p 8081:8080 $USERDOCKERHUB/$APP:latest'
+            }
+        }
+        stage ('Push image') {
+            when {
+                expression { params.ENVIRONMENT == "HOMOLOGATION" || params.ENVIRONMENT == "PRODUCTION" }
+            }
+            steps {
+                script {
+                    docker.withRegistry("https://registry.hub.docker.com", "dockerhub") {
+                        dockerapp.push("latest")
+                        dockerapp.push("$APP:0.1.${env.BUILD_ID}")
+                    }
+                }
+            }
+        }
+        stage ('Deploy to homologation environments') {
+            when {
+                expression { params.ENVIRONMENT == "HOMOLOGATION" }
+            }
+            steps {
+                sh 'docker run -d -p 8081:8080 $USERDOCKERHUB/$APP:latest'
+            }
+        }
+        stage ('Deploy to production environment') {
+            when {
+                expression { params.ENVIRONMENT == 'PRODUCTION' }
+            }
+            steps {
+                input message: 'Confirm deployment to production...', ok: 'Deploy'
+                dir ("${WORKSPACE}/$REPO/$DIR") {
+                    withKubeConfig([credentialsId: 'kubeconfig-prod']) {
+                        sh 'sed -i "s|{{image}}|$USERDOCKERHUB/$APP:latest|g" ../deployment.yaml'
+                        sh 'sed -i "s/{{ns}}/$APP-production/g" ../deployment.yaml'
+                        sh 'kubectl apply -f ../deployment.yaml'
+                    }
+                }
+            }
+        }
+    }
+}
