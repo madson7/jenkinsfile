@@ -47,10 +47,13 @@ pipeline {
             }
         }
         stage ('Application build with maven in docker') {
+            when {
+                expression { params.ENVIRONMENT == "DEVELOPMENT" || params.ENVIRONMENT == "HOMOLOGATION" || params.ENVIRONMENT == "PRODUCTION" }
+            }
             steps{
                 dir ("${WORKSPACE}/$REPO/$DIR") {
                     script{
-                        dockerapp = docker.build("$USERDOCKERHUB/$APP:0.1.${env.BUILD_ID}", "-f ../Dockerfile ..")
+                        dockerapp = docker.build("$USERDOCKERHUB/$APP:${env.BUILD_ID}", "-f ../Dockerfile ..")
                     }
                 }
             }
@@ -72,7 +75,7 @@ pipeline {
                 script {
                     docker.withRegistry("https://registry.hub.docker.com", "dockerhub") {
                         dockerapp.push("latest")
-                        dockerapp.push("$APP:0.1.${env.BUILD_ID}")
+                        dockerapp.push("${env.BUILD_ID}")
                     }
                 }
             }
@@ -93,6 +96,7 @@ pipeline {
                 input message: 'Confirm deployment to production...', ok: 'Deploy'
                 dir ("${WORKSPACE}/$REPO/$DIR") {
                     withKubeConfig([credentialsId: 'kubeconfig-prod']) {
+                        sh 'kubectl create namespace $APP-production'
                         sh 'sed -i "s|{{image}}|$USERDOCKERHUB/$APP:latest|g" ../deployment.yaml'
                         sh 'sed -i "s/{{ns}}/$APP-production/g" ../deployment.yaml'
                         sh 'kubectl apply -f ../deployment.yaml'
