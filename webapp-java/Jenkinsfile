@@ -60,7 +60,7 @@ pipeline {
                 expression { params.ENVIRONMENT != "HOMOLOGATION" && params.ENVIRONMENT != "PRODUCTION" }
             }
             steps {
-                sh 'docker rm --force $(docker ps -a -q)'
+                // sh 'docker rm --force $(docker ps -a -q)'
                 sh 'docker run -d -p 8081:8080 $USERDOCKERHUB/$APP:latest'
             }
         }
