@@ -55,12 +55,16 @@ Configure também os plugins, *Painel de controle > Gerenciar Jenkins > Plugins 
 
 Instale as seguintes extensões:
 
+* Docker
 * Docker API Plugin
 * Docker Commons Plugin
-* docker-build-step
-* Docker
 * Docker Pipeline
-* kubernetes
+* Docker plugin
+* Docker Swarm Plugin
+* docker-build-step
+* Kubernetes Client API Plugin
+* Kubernetes Credentials Plugin
+* Kubernetes plugin
 
 ## Pipeline
 
