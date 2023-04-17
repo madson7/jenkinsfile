@@ -1,0 +1,75 @@
+pipeline {
+    agent any
+    triggers {
+        pollSCM('* * * * *')
+    }
+    environment {
+        USERDOCKERHUB = "madson7"
+        DIR = "java/webapp/app"
+        APP = "webapp"
+    }
+    stages {
+        stage('Clone Repository the repository') {
+            steps {
+                git branch: "main", url: "https://github.com/madson7/dev.git"
+            }
+        }
+        stage ('UNIT testing') {
+            steps {
+                dir ("${WORKSPACE}/$DIR") {
+                    script{
+                        sh 'mvn test'
+                    }
+                }
+            }
+        }
+        stage ('Integration testing') {
+            steps {
+                dir ("${WORKSPACE}/$DIR") {
+                    script{
+                        sh 'mvn verify -DskipUnitTests'
+                    }
+                }
+            }
+        }
+        stage ('Application build with maven in docker') {
+            steps{
+                dir ("${WORKSPACE}/$DIR") {
+                    script{
+                        dockerapp = docker.build("madson7/$APP:${env.BUILD_ID}", "-f ../Dockerfile ..")
+                    }
+                }
+            }
+        }
+        stage ('Push image') {
+            steps {
+                script {
+                    docker.withRegistry("https://registry.hub.docker.com", "dockerhub") {
+                        dockerapp.push("latest")
+                        dockerapp.push("${env.BUILD_ID}")
+                    }
+                }
+            }
+        }
+        stage ('Deploy to homologation environments') {
+            steps {
+                sh "docker run -d -p 80${env.BUILD_ID}:8080 madson7/$APP:latest"
+            }
+        }
+        stage ('Deploy to production environment') {
+            steps {
+                input message: 'Confirm deployment to production...', ok: 'Deploy'
+                dir ("${WORKSPACE}/$DIR") {
+                    withKubeConfig([credentialsId: 'kubeconfig-prod']) {
+                        sh 'kubectl create namespace $APP-production'
+                        sh 'sed -i "s|{{image}}|madson7/$APP:latest|g" ../deployment.yaml'
+                        sh 'sed -i "s/{{ns}}/$APP-production/g" ../deployment.yaml'
+                        sh "sed -i 's/{{port}}/${env.BUILD_ID}/g' ../deployment.yaml"
+                        sh 'kubectl apply -f ../deployment.yaml'
+                    }
+                }
+            }
+        }
+    }
+}
+
